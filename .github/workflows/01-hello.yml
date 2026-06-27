@@ -8,7 +8,7 @@ on:
   # push:
   #   paths:
   #     - ".github/workflows/01-hello.yml"
-  # Allow a safe manual run from the Actions tab too.
+  # Allow a safe manual run from theopened Actions tab too.
   pull_request:
     branches:
      - main
