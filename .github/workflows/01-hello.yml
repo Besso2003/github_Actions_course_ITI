@@ -1,13 +1,21 @@
 # This first workflow is intentionally tiny.
 # It helps students see what a GitHub Actions run looks like.
-name: 01 Hello Workflow
+# name: 01 Hello Workflow
+name: 01 Exercise
 
 on:
   # Run automatically when this workflow file changes.
-  push:
+  # push:
+  #   paths:
+  #     - ".github/workflows/01-hello.yml"
+  # Allow a safe manual run from the Actions tab too.
+  pull_request:
+    branche:
+     - main
+    types:
+     - open 
     paths:
       - ".github/workflows/01-hello.yml"
-  # Allow a safe manual run from the Actions tab too.
   workflow_dispatch:
 
 jobs:
