@@ -8,12 +8,12 @@ on:
   # push:
   #   paths:
   #     - ".github/workflows/01-hello.yml"
-  # Allow a safe manual run from the Actions tab too.
+  # Allow a safe manual run from theopened Actions tab too.
   pull_request:
-    branch:
+    branches:
      - main
     types:
-     - open 
+     - opened 
     paths:
       - ".github/workflows/01-hello.yml"
   workflow_dispatch:
@@ -26,4 +26,4 @@ jobs:
     steps:
       - name: Say hello
         # This single step is enough to show a full workflow run.
-        run: echo "Hello from GitHub Actions and from Bassant"
+        run: echo "Hello from GitHub Actions and from Bassant "
