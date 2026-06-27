@@ -1,33 +1,76 @@
 # This is the first real CI workflow in the course.
 # It verifies a change by running tests on a fresh runner.
 name: 02 CI Workflow
-
 on:
-  # Run automatically when app code, tests, or this workflow file changes.
   push:
     paths:
       - "app/**"
       - "tests/**"
+      - "Dockerfile"
+      - "Dockerfile.arg-base"
       - ".github/workflows/02-ci.yml"
-  # Allow a safe manual run before students trigger it with a code change.
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "tests/**"
+      - "Dockerfile"
+      - "Dockerfile.arg-base"
+      - ".github/workflows/02-ci.yml"
   workflow_dispatch:
-
+  schedule:
+    - cron: "*/30 * * * *"
 jobs:
   run-tests:
-    # The runner is the temporary machine that executes the steps below.
-    runs-on: ubuntu-latest
-
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12"]
     steps:
       - name: Check out repository
-        # Download the repository contents onto the runner.
         uses: actions/checkout@v6
-
+      - name: check out repo code
+        run: |
+          echo "Current directory: $(pwd)"
+          ls -la
+          ls -la app || echo "No app folder found"
+          ls -la tests || echo "No tests folder found"
+          ls -la Dockerfile* || echo "No Dockerfile found"
       - name: Set up Python
-        # Prepare Python on the runner. This does not change the student laptop.
         uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
-
+          python-version: ${{ matrix.python-version }}
+      - name: check version of python
+        run: |
+          echo "Python executable: $(which python)"
+          python --version
+      - name: check date of runner
+        run: date
       - name: Run tests
-        # This is the key verification step in the CI workflow.
         run: python -m unittest discover -s tests -v
+
+  trivy-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          severity: "CRITICAL,HIGH"
+          exit-code: "1"
+
+      - name: Build image for scanning
+        run: docker build -f Dockerfile -t ci-scan-image:${{ github.sha }} .
+
+      - name: Trivy Dockerfile/image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: "ci-scan-image:${{ github.sha }}"
+          severity: "CRITICAL,HIGH"
+          exit-code: "1"
