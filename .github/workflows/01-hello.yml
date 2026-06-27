@@ -10,7 +10,7 @@ on:
   #     - ".github/workflows/01-hello.yml"
   # Allow a safe manual run from the Actions tab too.
   pull_request:
-    branche:
+    branch:
      - main
     types:
      - open 
