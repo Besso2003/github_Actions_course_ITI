@@ -21,7 +21,6 @@ on:
       - "Dockerfile"
       - "Dockerfile.arg-base"
       - ".github/workflows/02-ci.yml"
-      
   # Allow a safe manual run before students trigger it with a code change.
   workflow_dispatch:
   schedule:
@@ -40,7 +39,6 @@ jobs:
       - name: Check out repository
         # Download the repository contents onto the runner.
         uses: actions/checkout@v6
-        
       - name: check out repo code
         run: |
           echo "Current directory: $(pwd)"
@@ -52,21 +50,48 @@ jobs:
           ls -la tests || echo "No tests folder found"
           echo "Dockerfile present:"
           ls -la Dockerfile* || echo "No Dockerfile found"
-          
       - name: Set up Python
         # Prepare Python on the runner. This does not change the student laptop.
         uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-          
       - name: check version of python
         run: |
           echo "Python executable: $(which python)"
           python --version
-          
       - name: check date of runner
         run: date
-        
       - name: Run tests
         # This is the key verification step in the CI workflow.
         run: python -m unittest discover -s tests -v
+
+  trivy-scan:
+    # Security scanning runs on its own job, in parallel with run-tests.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Trivy filesystem scan
+        # Scans the repo's source files and dependency manifests
+        # (e.g. requirements.txt) for known vulnerabilities.
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          severity: "CRITICAL,HIGH"
+          exit-code: "1"
+
+      - name: Build image for scanning
+        # Trivy's "image" scan needs a built image to inspect,
+        # so we build it locally on the runner first (no push).
+        run: docker build -f Dockerfile -t ci-scan-image:${{ github.sha }} .
+
+      - name: Trivy Dockerfile/image scan
+        # Scans the built image's layers and installed packages
+        # for known vulnerabilities.
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: "ci-scan-image:${{ github.sha }}"
+          severity: "CRITICAL,HIGH"
+          exit-code: "1"
