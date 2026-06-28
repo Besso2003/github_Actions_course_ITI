@@ -1,9 +1,13 @@
-# This workflow packages the verified app.
-# It is manual on purpose so Day 1 stays focused on CI.
+# This workflow verifies the app, then packages it.
+# The build job depends on the verify job via `needs`,
+# so packaging cannot start until verification passes.
 name: 03 Build Artifact Workflow
 on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+# on:
   # Students start this workflow manually from the Actions tab.
-  workflow_dispatch:
+  # workflow_dispatch:
 permissions:
   security-events: write
 env:
@@ -12,25 +16,34 @@ env:
   IMAGE_TAR: tiny-health-app.tar
   IMAGE_METADATA: image-metadata.env
   ARTIFACT_NAME: tiny-health-app-image
+
 jobs:
-  build-package:
-    # Use a fresh GitHub-hosted runner for the build.
+  # ---- PHASE 1: VERIFY ----
+  verify:
+    # Use a fresh GitHub-hosted runner to run tests.
     runs-on: ubuntu-latest
-    outputs:
-      # Re-publish the image tag so the second job can reference the same image.
-      image_tag: ${{ steps.image-tag.outputs.image_tag }}
     steps:
       - name: Check out repository
         # Get the repository files onto the runner.
         uses: actions/checkout@v6
       - name: Set up Python
-        # Prepare Python so the workflow can run the tests first.
+        # Prepare Python so the workflow can run the tests.
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Run tests
-        # Build only after the verification step passes.
+        # This is the verification gate the build job waits on.
         run: python -m unittest discover -s tests -v
+
+  # ---- PHASE 2: BUILD & PACKAGE ----
+  build-package:
+    # This job only starts once the verify job completes successfully.
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        # Jobs run on separate runners, so checkout again here.
+        uses: actions/checkout@v6
       - name: Set image tag
         # Use today's UTC date plus the GitHub run ID.
         # This keeps the tag easy to explain and still unique for the run.
@@ -47,15 +60,15 @@ jobs:
             -t "${IMAGE_NAME}:${{ steps.image-tag.outputs.image_tag }}" \
             .
       - name: Run Trivy vulnerability scan on Docker image
-        # Quick human-readable scan of the live image, right after building it.
-        uses: aquasecurity/trivy-action@v0.36.0
+        # Scan the Docker image for vulnerabilities.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.image_tag }}
           format: 'table'
         continue-on-error: true
       - name: Run Trivy vulnerability scan on filesystem
-        # Scans repo source/dependencies, not the image — fits here regardless of job split.
-        uses: aquasecurity/trivy-action@v0.36.0
+        # Scan the filesystem for vulnerabilities.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -64,40 +77,11 @@ jobs:
       - name: Save Docker image as artifact file
         # Convert that exact tagged image into a file that can be reused later.
         run: docker save "${IMAGE_NAME}:${{ steps.image-tag.outputs.image_tag }}" -o "${IMAGE_TAR}"
-      - name: Save image metadata
-        # Keep the exact built image reference alongside the tar file.
-        # The deploy workflow reads this file later instead of recreating the tag.
-        run: |
-          IMAGE_REFERENCE="${IMAGE_NAME}:${{ steps.image-tag.outputs.image_tag }}"
-          printf 'IMAGE_TAG=%s\n' "${{ steps.image-tag.outputs.image_tag }}" > "${IMAGE_METADATA}"
-          printf 'IMAGE_REFERENCE=%s\n' "${IMAGE_REFERENCE}" >> "${IMAGE_METADATA}"
-      - name: Upload build artifact
-        # Store the packaged output so a later workflow (or job) can use the exact same package.
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: |
-            ${{ env.IMAGE_TAR }}
-            ${{ env.IMAGE_METADATA }}
-          retention-days: 7
-
-  trivy-scan-artifact:
-    # Only runs after build-package finishes successfully and uploads its artifact.
-    needs: build-package
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download build artifact
-        # Pull down the saved image file produced by build-package.
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: downloaded-artifact
       - name: Run Trivy vulnerability scan on artifact
-        # Scan the saved artifact file directly — no docker load needed,
-        # Trivy can read a saved image tar as an input.
-        uses: aquasecurity/trivy-action@v0.36.0
+        # Scan the saved artifact for vulnerabilities.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          input: downloaded-artifact/${{ env.IMAGE_TAR }}
+          input: ${{ env.IMAGE_TAR }}
           format: 'sarif'
           output: 'trivy-artifact-results.sarif'
         continue-on-error: true
@@ -107,3 +91,19 @@ jobs:
         with:
           sarif_file: trivy-artifact-results.sarif
           category: trivy-artifact
+      - name: Save image metadata
+        # Keep the exact built image reference alongside the tar file.
+        # The deploy workflow reads this file later instead of recreating the tag.
+        run: |
+          IMAGE_REFERENCE="${IMAGE_NAME}:${{ steps.image-tag.outputs.image_tag }}"
+          printf 'IMAGE_TAG=%s\n' "${{ steps.image-tag.outputs.image_tag }}" > "${IMAGE_METADATA}"
+          printf 'IMAGE_REFERENCE=%s\n' "${IMAGE_REFERENCE}" >> "${IMAGE_METADATA}"
+      - name: Upload build artifact
+        # Store the packaged output so a later workflow can use the exact same package.
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: |
+            ${{ env.IMAGE_TAR }}
+            ${{ env.IMAGE_METADATA }}
+          retention-days: 7
