@@ -30,6 +30,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           RUN_ID="$(gh run list \
+            --repo "${{ github.repository }}" \
             --workflow "03-build.yml" \
             --status success \
             --branch main \
